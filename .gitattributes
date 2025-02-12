@@ -1,0 +1,2 @@
+Libs/linux/libspx.a filter=lfs diff=lfs merge=lfs -text
+Libs/linux/libspx_64.a filter=lfs diff=lfs merge=lfs -text
