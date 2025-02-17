@@ -12,7 +12,7 @@ import glob
 from enum import Enum
 
 class RadarHandler:
-    def __init__(self, screen_size=(1200, 600), mode='live', file_path=None):
+    def __init__(self, screen_size=(600, 600), mode='live', file_path=None):
         pygame.init()
         self.screen_size = screen_size
         self.screen = pygame.display.set_mode(screen_size)
@@ -25,8 +25,8 @@ class RadarHandler:
         }.get(mode, '알 수 없는 모드')
         pygame.display.set_caption(f"Radar Display - Original vs Filtered ({mode_text})")
         
-        self.center_original = (screen_size[0]//4, screen_size[1]//2)  # 왼쪽 레이더 중심
-        self.center_filtered = (3*screen_size[0]//4, screen_size[1]//2)  # 오른쪽 레이더 중심
+        self.center_original = (screen_size[0]//2, screen_size[1]//2)  # 왼쪽 레이더 중심
+        self.center_filtered = (3*screen_size[0]//2, screen_size[1]//2)  # 오른쪽 레이더 중심
         self.scale_factor = 250
         self.current_end_range = 50.0
         self.scale = 0
@@ -35,7 +35,9 @@ class RadarHandler:
         self.running = True
         self.angle_idx = 0
         self.current_sector = 0
+        # self.screen_size = (600, 600)
         
+        # self.screen = pygame.display.s2et_mode(self.screen_size)
         # 두 개의 서피스 초기화
         self.data_surface_original = pygame.Surface(screen_size)
         self.data_surface_original.fill((0, 0, 0))
@@ -62,12 +64,16 @@ class RadarHandler:
         self.dragging = False
         # 재생/정지 상태를 위한 변수 추가
         self.is_paused = False
+        self.display_mode = 'single'  # 'single' 또는 'dual' 모드
 
     def draw_radar_display(self):
-        # 왼쪽 레이더 (원본)
-        self.draw_single_radar(self.center_original, "Original")
-        # 오른쪽 레이더 (필터링됨)
-        self.draw_single_radar(self.center_filtered, "Filtered")
+        if self.display_mode == 'single':
+            # 단일 레이더 (원본만)
+            self.draw_single_radar((self.screen_size[0]//2, self.screen_size[1]//2), "Original")
+        else:
+            # 두 개의 레이더 (원본과 필터링)
+            self.draw_single_radar(self.center_original, "Original")
+            self.draw_single_radar(self.center_filtered, "Filtered")
 
     def draw_single_radar(self, center, title):
         # 레이더 배경 원 그리기
@@ -229,7 +235,7 @@ class RadarHandler:
                         except Exception as e:
                             print(f"데이터 파싱 오류: {e}")
                     
-                        time.sleep(0.0002)  # 데이터 처리 속도 조절
+                        time.sleep(0.0003)  # 데이터 처리 속도 조절
                 
                 last_file_index = self.current_file_index
                 self.current_file_index += 1
@@ -295,12 +301,25 @@ class RadarHandler:
         self.data_surface_filtered.blit(sector_mask, (0, 0))
 
     def draw_intensity_data(self, azimuth, intensity_data):
-        # 원본 데이터 그리기
-        self._draw_single_intensity_data(self.data_surface_original, self.center_original, azimuth, intensity_data)
-        
-        # 필터링된 데이터 처리 및 그리기
-        filtered_data = self.apply_filter(intensity_data)
-        self._draw_single_intensity_data(self.data_surface_filtered, self.center_filtered, azimuth, filtered_data)
+        if self.display_mode == 'single':
+            # 원본 데이터 그리기
+            self._draw_single_intensity_data(self.data_surface_original, self.center_original, azimuth, intensity_data)
+        elif self.display_mode == 'filter_visualization':
+            # 필터링 시각화 모드
+            filtered_data = self.apply_filter(intensity_data)
+            center = (self.screen_size[0]//2, self.screen_size[1]//2)
+            
+            # 필터링된 데이터는 초록색으로 표시
+            self._draw_single_intensity_data_colored(self.data_surface_original, center, azimuth, filtered_data, (0, 255, 0))
+            
+            # 필터링으로 제거된 데이터는 빨간색으로 표시
+            removed_data = np.where(intensity_data > filtered_data, intensity_data, 0)
+            self._draw_single_intensity_data_colored(self.data_surface_original, center, azimuth, removed_data, (255, 0, 0))
+        else:
+            # 듀얼 모드 (기존 코드)
+            self._draw_single_intensity_data(self.data_surface_original, self.center_original, azimuth, intensity_data)
+            filtered_data = self.apply_filter(intensity_data)
+            self._draw_single_intensity_data(self.data_surface_filtered, self.center_filtered, azimuth, filtered_data)
 
     def _draw_single_intensity_data(self, surface, center, azimuth, intensity_data):
         pixel_array = pygame.surfarray.pixels2d(surface)
@@ -330,9 +349,51 @@ class RadarHandler:
         
         del pixel_array
 
+    def _draw_single_intensity_data_colored(self, surface, center, azimuth, intensity_data, color):
+        pixel_array = pygame.surfarray.pixels2d(surface)
+        max_range = self.current_end_range * (self.concentric_circles-self.scale) / self.concentric_circles
+        ranges = np.linspace(0.0, self.current_end_range, len(intensity_data))
+        
+        range_mask = ranges <= max_range
+        intensity_mask = intensity_data > 0
+        mask = range_mask & intensity_mask
+        
+        if np.any(mask):
+            theta = math.radians(azimuth)
+            scaled_ranges = ranges[mask] * self.scale_factor / max_range
+            
+            x = (scaled_ranges * np.cos(theta - math.pi/2) + center[0]).astype(int)
+            y = (scaled_ranges * np.sin(theta - math.pi/2) + center[1]).astype(int)
+            
+            valid_indices = (x >= 0) & (x < self.screen_size[0]) & (y >= 0) & (y < self.screen_size[1])
+            x = x[valid_indices]
+            y = y[valid_indices]
+            
+            # RGB 색상 변환
+            r, g, b = color
+            colors = np.zeros_like(x, dtype=np.uint32)
+            if r: colors |= (r << 16)
+            if g: colors |= (g << 8)
+            if b: colors |= b
+            
+            pixel_array[x, y] = colors
+        
+        del pixel_array
+
     def draw_progress_bar(self):
         """진행 상황 스크롤바 그리기"""
         if self.mode == 'directory' and self.total_files > 0:
+            # 디스플레이 모드에 따라 스크롤바 위치 조정
+            if self.display_mode == 'single':
+                scroll_width = self.screen_size[0] - 100
+                scroll_x = 50
+            else:  # dual 모드
+                scroll_width = self.screen_size[0] - 100
+                scroll_x = 50
+
+            # 스크롤바 위치 업데이트
+            self.scroll_rect = pygame.Rect(scroll_x, self.screen_size[1] - 30, scroll_width, 20)
+            
             # 스크롤바 배경
             pygame.draw.rect(self.screen, (50, 50, 50), self.scroll_rect)
             
@@ -357,11 +418,35 @@ class RadarHandler:
 
     def handle_scroll_events(self, event):
         """스크롤바 이벤트 처리"""
-        if self.mode != 'directory':
-            return
-            
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE:
+            if event.key == pygame.K_1:
+                # 단일 레이더 모드로 전환 (원본 데이터)
+                self.display_mode = 'single'
+                self.screen_size = (600, 600)
+                self.screen = pygame.display.set_mode(self.screen_size)
+                self.data_surface_original = pygame.Surface(self.screen_size)
+                self.data_surface_original.fill((0, 0, 0))
+                self.data_surface_filtered = pygame.Surface(self.screen_size)
+                self.data_surface_filtered.fill((0, 0, 0))
+            elif event.key == pygame.K_2:
+                # 단일 레이더 모드로 전환 (필터링 시각화)
+                self.display_mode = 'filter_visualization'
+                self.screen_size = (600, 600)
+                self.screen = pygame.display.set_mode(self.screen_size)
+                self.data_surface_original = pygame.Surface(self.screen_size)
+                self.data_surface_original.fill((0, 0, 0))
+                self.data_surface_filtered = pygame.Surface(self.screen_size)
+                self.data_surface_filtered.fill((0, 0, 0))
+            elif event.key == pygame.K_3:
+                # 듀얼 레이더 모드로 전환
+                self.display_mode = 'dual'
+                self.screen_size = (1200, 600)
+                self.screen = pygame.display.set_mode(self.screen_size)
+                self.data_surface_original = pygame.Surface(self.screen_size)
+                self.data_surface_original.fill((0, 0, 0))
+                self.data_surface_filtered = pygame.Surface(self.screen_size)
+                self.data_surface_filtered.fill((0, 0, 0))
+            elif event.key == pygame.K_SPACE:
                 self.is_paused = not self.is_paused
             # 왼쪽 방향키 처리
             elif event.key == pygame.K_LEFT:
@@ -377,7 +462,6 @@ class RadarHandler:
                     self.current_file_index = new_index
                     self.data_surface_original.fill((0, 0, 0))
                     self.data_surface_filtered.fill((0, 0, 0))
-             
             elif event.key == pygame.K_7:
                 if self.concentric_circles > 1:
                     self.concentric_circles -= 1
@@ -389,7 +473,6 @@ class RadarHandler:
             elif event.key == pygame.K_0:
                 if self.scale > 0:
                     self.scale -= 1
-               
         
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1 and self.scroll_button_rect.collidepoint(event.pos):
