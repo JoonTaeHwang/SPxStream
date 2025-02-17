@@ -12,7 +12,7 @@ import glob
 from enum import Enum
 
 class RadarHandler:
-    def __init__(self, screen_size=(1600, 800), mode='live', file_path=None):
+    def __init__(self, screen_size=(1200, 600), mode='live', file_path=None):
         pygame.init()
         self.screen_size = screen_size
         self.screen = pygame.display.set_mode(screen_size)
@@ -27,9 +27,10 @@ class RadarHandler:
         
         self.center_original = (screen_size[0]//4, screen_size[1]//2)  # 왼쪽 레이더 중심
         self.center_filtered = (3*screen_size[0]//4, screen_size[1]//2)  # 오른쪽 레이더 중심
-        self.scale_factor = 300
+        self.scale_factor = 250
         self.current_end_range = 50.0
-        
+        self.scale = 0
+        self.concentric_circles = 5  # 동심원 개수
         self.data_queue = Queue()
         self.running = True
         self.angle_idx = 0
@@ -74,12 +75,14 @@ class RadarHandler:
         
         # 동심원과 거리 텍스트 그리기
         font = pygame.font.Font(None, 18)
-        for i in range(1, 6):
-            radius = self.scale_factor * i / 5
+        distance = np.linspace(0, self.current_end_range, self.concentric_circles + 1)
+        # radius_ = np.linspace(0,self.scale_factor,6)
+        for i in range(1, ((self.concentric_circles+1)-self.scale)):
+            radius = self.scale_factor * i / (self.concentric_circles-self.scale)
             pygame.draw.circle(self.screen, (0, 50, 0), center, int(radius), 1)
             
-            distance = self.current_end_range * i / 5
-            text = f"{distance:.1f}m"
+            # distance = self.current_end_range * i / (5-self.scale)
+            text = f"{distance[i]:.1f}m"
             text_surface = font.render(text, True, (0, 100, 0))
             text_rect = text_surface.get_rect()
             text_rect.midleft = (center[0] + int(radius) + 2, center[1]+10)
@@ -226,7 +229,7 @@ class RadarHandler:
                         except Exception as e:
                             print(f"데이터 파싱 오류: {e}")
                     
-                        time.sleep(0.00002)  # 데이터 처리 속도 조절
+                        time.sleep(0.0002)  # 데이터 처리 속도 조절
                 
                 last_file_index = self.current_file_index
                 self.current_file_index += 1
@@ -301,12 +304,18 @@ class RadarHandler:
 
     def _draw_single_intensity_data(self, surface, center, azimuth, intensity_data):
         pixel_array = pygame.surfarray.pixels2d(surface)
+        # 현재 스케일에 맞춘 최대 거리 계산
+        max_range = self.current_end_range * (self.concentric_circles-self.scale) / self.concentric_circles
         ranges = np.linspace(0.0, self.current_end_range, len(intensity_data))
-        mask = intensity_data > 0
+        
+        # 스케일 범위 내의 데이터만 선택
+        range_mask = ranges <= max_range
+        intensity_mask = intensity_data > 0
+        mask = range_mask & intensity_mask
         
         if np.any(mask):
             theta = math.radians(azimuth)
-            scaled_ranges = ranges[mask] * self.scale_factor / self.current_end_range
+            scaled_ranges = ranges[mask] * self.scale_factor / max_range
             
             x = (scaled_ranges * np.cos(theta - math.pi/2) + center[0]).astype(int)
             y = (scaled_ranges * np.sin(theta - math.pi/2) + center[1]).astype(int)
@@ -368,6 +377,19 @@ class RadarHandler:
                     self.current_file_index = new_index
                     self.data_surface_original.fill((0, 0, 0))
                     self.data_surface_filtered.fill((0, 0, 0))
+             
+            elif event.key == pygame.K_7:
+                if self.concentric_circles > 1:
+                    self.concentric_circles -= 1
+            elif event.key == pygame.K_8:
+                self.concentric_circles += 1
+            elif event.key == pygame.K_9:
+                if self.scale < self.concentric_circles - 1:
+                    self.scale += 1
+            elif event.key == pygame.K_0:
+                if self.scale > 0:
+                    self.scale -= 1
+               
         
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1 and self.scroll_button_rect.collidepoint(event.pos):
@@ -487,7 +509,7 @@ class Mode(Enum):
 
 if __name__ == "__main__":
     
-    mode = Mode.FILE
+    mode = Mode.DIRECTORY
     # Mode.LIVE: 실시간 레이더 데이터 스트리밍 모드
     # Mode.FILE: SPx 레이더(*.cpr) 데이터 파일 재생 모드  
     # Mode.DIRECTORY: *.txt 로 변환된 레이더 데이터 파일들이 있는 디렉토리 재생 모드
@@ -497,7 +519,7 @@ if __name__ == "__main__":
     elif mode == Mode.FILE:
         radar = RadarHandler(mode='file', file_path='20250124-120122-0x2eea4790.cpr')
     elif mode == Mode.DIRECTORY:
-        radar = RadarHandler(mode='directory', file_path='./20240416-084252-0x31fa340')
+        radar = RadarHandler(mode='directory', file_path='./data/20250124-120122-0x2eea4790')
     else:
         raise ValueError(f"Invalid mode: {mode}")
 
