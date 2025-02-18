@@ -28,9 +28,12 @@ def initialize_global_values():
     global_vals.intensity_data = None
     global_vals.filtered_data = None
     # Add a Queue for data
-    global_vals.data_queue = manager.Queue()
+    global_vals.Radar_queue = manager.Queue()
+    global_vals.LiDAR_queue = manager.Queue()
+    global_vals.LiDAR_PCD = None
     global_vals.running = True
     global_vals.is_paused = False
     global_vals.current_file_index = 0
     global_vals.total_files = 0
+    
     return global_vals

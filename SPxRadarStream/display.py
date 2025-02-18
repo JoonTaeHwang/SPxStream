@@ -1,4 +1,3 @@
-
 import numpy as np
 import pygame
 import math
@@ -10,7 +9,7 @@ class RadarDisplay:
                 self,
                 global_vals,
                 Config,
-                screen_size=(600, 600),
+                screen_size=(800, 800),
                 mode='live',
                 file_path=None
                 ):
@@ -30,7 +29,7 @@ class RadarDisplay:
         
         self.center_original = (screen_size[0]//2, screen_size[1]//2)  # 왼쪽 레이더 중심
         self.center_filtered = (3*screen_size[0]//2, screen_size[1]//2)  # 오른쪽 레이더 중심
-        self.scale_factor = 250
+        self.scale_factor = 350
         self.current_end_range = 50.0
         self.scale = 0
         self.concentric_circles = 5  # 동심원 개수
@@ -52,16 +51,14 @@ class RadarDisplay:
         # 모드 설정 추가
         self.mode = mode
         self.file_path = file_path
-        
-        # directory 모드를 위한 변수 추가
-        # self.global_vals.current_file_index = 0
-        # self.global_vals.total_files = 0
         self.scroll_rect = pygame.Rect(50, self.screen_size[1] - 30, self.screen_size[0] - 100, 20)
         self.scroll_button_rect = pygame.Rect(50, self.screen_size[1] - 30, 20, 20)
         self.dragging = False
-        # 재생/정지 상태를 위한 변수 추가
-        # self.global_vals.is_paused = False
         self.display_mode = 'single'  # 'single' 또는 'dual' 모드
+        
+        self.display_lidar_data = False
+        
+        self.run()
 
     def draw_radar_display(self):
         if self.display_mode == 'single':
@@ -71,6 +68,10 @@ class RadarDisplay:
             # 두 개의 레이더 (원본과 필터링)
             self.draw_single_radar(self.center_original, "Original")
             self.draw_single_radar(self.center_filtered, "Filtered")
+        
+        # LiDAR 데이터 그리기
+        if  self.display_lidar_data:
+            self.draw_lidar_data()
 
     def draw_single_radar(self, center, title):
         # 레이더 배경 원 그리기
@@ -165,7 +166,7 @@ class RadarDisplay:
             self._draw_single_intensity_data_colored(self.data_surface_original, self.center_original, azimuth, filtered_data, (0, 255, 0))
             # 필터링으로 제거된 데이터는 빨간색으로 표시
             removed_data = np.where(intensity_data > filtered_data, intensity_data, 0)
-            self._draw_single_intensity_data_colored(self.data_surface_original, self.center_original, azimuth, removed_data, (255, 0, 0))
+            self._draw_single_intensity_data_colored(self.data_surface_original, self.center_original, azimuth, removed_data, (122, 122, 122))
         else:
             # 듀얼 모드 (기존 코드)
             filtered_data = self.radar_filter.apply_filter(intensity_data)
@@ -274,7 +275,7 @@ class RadarDisplay:
             if event.key == pygame.K_1:
                 # 단일 레이더 모드로 전환 (원본 데이터)
                 self.display_mode = 'single'
-                self.screen_size = (600, 600)
+                self.screen_size = (800, 800)
                 self.screen = pygame.display.set_mode(self.screen_size)
                 self.data_surface_original = pygame.Surface(self.screen_size)
                 self.data_surface_original.fill((0, 0, 0))
@@ -283,7 +284,7 @@ class RadarDisplay:
             elif event.key == pygame.K_2:
                 # 단일 레이더 모드로 전환 (필터링 시각화)
                 self.display_mode = 'filter_visualization'
-                self.screen_size = (600, 600)
+                self.screen_size = (800, 800)
                 self.screen = pygame.display.set_mode(self.screen_size)
                 self.data_surface_original = pygame.Surface(self.screen_size)
                 self.data_surface_original.fill((0, 0, 0))
@@ -292,12 +293,14 @@ class RadarDisplay:
             elif event.key == pygame.K_3:
                 # 듀얼 레이더 모드로 전환
                 self.display_mode = 'dual'
-                self.screen_size = (1200, 600)
+                self.screen_size = (1600, 800)
                 self.screen = pygame.display.set_mode(self.screen_size)
                 self.data_surface_original = pygame.Surface(self.screen_size)
                 self.data_surface_original.fill((0, 0, 0))
                 self.data_surface_filtered = pygame.Surface(self.screen_size)
                 self.data_surface_filtered.fill((0, 0, 0))
+            elif event.key == pygame.K_4:
+                self.display_lidar_data = not self.display_lidar_data
             elif event.key == pygame.K_SPACE:
                 self.global_vals.is_paused = not self.global_vals.is_paused
             # 왼쪽 방향키 처리
@@ -352,12 +355,12 @@ class RadarDisplay:
                         self.global_vals.running = False
                     self.handle_scroll_events(event)
                 
-                while not self.global_vals.data_queue.empty():
-                    sector_data, receive_time = self.global_vals.data_queue.get()
+                while not self.global_vals.Radar_queue.empty():
+                    sector_data, receive_time = self.global_vals.Radar_queue.get()
                     processing_delay = time.time() - receive_time
                     
                     # 일시 정지 상태가 아닐 때만 처리 지연 메시지 표시
-                    if processing_delay > 0.1 and not self.global_vals.is_paused:
+                    if processing_delay > 0.11 and not self.global_vals.is_paused:
                         print(f"처리 지연 감지: {processing_delay:.3f}초")
                     
                     self.process_sector_data(sector_data,receive_time)
@@ -390,3 +393,48 @@ class RadarDisplay:
             self.process.terminate()
             self.process.wait()
         pygame.quit()
+
+    def draw_lidar_data(self):
+        """LiDAR 데이터를 화면에 그리기"""
+        if not self.global_vals.LiDAR_queue.empty():
+            pcd, timestamp = self.global_vals.LiDAR_queue.get()
+            # 현재 스케일에 맞춘 최대 거리 계산
+            max_range = self.current_end_range * (self.concentric_circles - self.scale) / self.concentric_circles
+            scale_factor = self.scale_factor / max_range
+            
+            # 투명한 서피스 생성
+            # lidar_surface = pygame.Surface(self.screen_size, pygame.SRCALPHA)
+            
+            for point in pcd:
+                x, y, z, intensity = point
+                
+                # 스케일 범위 내의 점들만 그리기
+                if abs(x) <= max_range and abs(y) <= max_range:
+                    # z 축을 무시하고 x, y 좌표를 사용하여 그리기
+                    # 0도를 정면으로 기준으로 그리기 위해 x, y를 변환
+                    screen_x = int(self.center_original[0] + x * scale_factor)
+                    screen_y = int(self.center_original[1] - y * scale_factor)
+
+                    # intensity를 빨간색 강도로 변환 (0-255 범위)
+                    color_intensity = min(max(intensity, 0), 255)
+                    # 투명도 50 적용
+                    # color = (color_intensity, 0, 0)  # 빨간색
+                    color = (255, 0, 0)  # 빨간색
+                    
+                    # 화면에 점 그리기
+                    pygame.draw.circle(self.screen, color, (screen_x, screen_y), 1)
+                    
+                    if self.display_mode == 'dual':
+                        screen2_x = int(self.center_filtered[0] + x * scale_factor)
+                        screen2_y = int(self.center_filtered[1] - y * scale_factor)
+                        color = (255, 0, 0)  # 빨간색
+                        pygame.draw.circle(self.screen, color, (screen2_x, screen2_y), 1)
+                    
+                    
+            #         color = (255, 0, 0, 50)  # 빨간색, 투명도 50
+                    
+            #         # 투명한 서피스에 점 그리기
+            #         pygame.draw.circle(lidar_surface, color, (screen_x, screen_y), 1)
+            
+            # # 메인 화면에 블릿
+            # self.screen.blit(lidar_surface, (0, 0))

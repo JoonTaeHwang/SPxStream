@@ -4,6 +4,10 @@ from io import StringIO
 import multiprocessing
 import time
 import glob
+import os
+from os.path import isfile, join
+import struct
+import numpy as np
 
 class RadarHandler:
     def __init__(self, global_vals, mode='live', file_path=None):
@@ -30,8 +34,8 @@ class RadarHandler:
                                 sector_idx = int(azimuth // 30)
                                 
                                 if sector_idx != current_sector and buffer[current_sector]:
-                                    if self.global_vals.data_queue.qsize() < 10:
-                                        self.global_vals.data_queue.put((buffer[current_sector].copy(), time.time()))
+                                    if self.global_vals.Radar_queue.qsize() < 36:
+                                        self.global_vals.Radar_queue.put((buffer[current_sector].copy(), time.time()))
                                         buffer[current_sector] = []
                                     else:
                                         print("큐가 가득 찼습니다. 데이터 스킵")
@@ -87,7 +91,7 @@ class RadarHandler:
                                     sector_idx = int(azimuth // 30)
                                     
                                     if sector_idx != current_sector and buffer[current_sector]:
-                                        self.global_vals.data_queue.put((buffer[current_sector].copy(), time.time()))
+                                        self.global_vals.Radar_queue.put((buffer[current_sector].copy(), time.time()))
                                         buffer[current_sector] = []
                                     
                                     current_sector = sector_idx
@@ -98,7 +102,7 @@ class RadarHandler:
                         
                         # 마지막 버퍼 데이터 처리
                         if buffer[current_sector]:
-                            self.global_vals.data_queue.put((buffer[current_sector].copy(), time.time()))
+                            self.global_vals.Radar_queue.put((buffer[current_sector].copy(), time.time()))
                         
                         last_file_index = self.global_vals.current_file_index
                     
@@ -108,6 +112,7 @@ class RadarHandler:
                         continue
                         
                     # 기존 실시간 재생 로직
+                    start_time = time.time() 
                     file = self.files[self.global_vals.current_file_index]
                     with open(file, 'r') as f:
                         for line in f:
@@ -127,9 +132,15 @@ class RadarHandler:
                                 sector_idx = int(azimuth // 30)
                                 
                                 if sector_idx != current_sector and buffer[current_sector]:
-                                    if self.global_vals.data_queue.qsize() < 36:
-                                        self.global_vals.data_queue.put((buffer[current_sector].copy(), time.time()))
+                                    if self.global_vals.Radar_queue.qsize() < 100:
+                                        self.global_vals.Radar_queue.put((buffer[current_sector].copy(), time.time()))
                                         buffer[current_sector] = []
+                                        # time.sleep(0.95)
+                                        elapsed_time = time.time() - start_time
+                                        sleep_time = max(0, 0.1 - elapsed_time)
+                                        time.sleep(sleep_time)
+                                        start_time = time.time() 
+                                        
                                     else:
                                         print("큐가 가득 찼습니다. 데이터 스킵")
                                         buffer[current_sector] = []
@@ -140,7 +151,7 @@ class RadarHandler:
                             except Exception as e:
                                 print(f"데이터 파싱 오류: {e}")
                         
-                            time.sleep(0.0002)  # 데이터 처리 속도 조절
+                            # time.sleep(0.0001)  # 데이터 처리 속도 조절
                     
                     last_file_index = self.global_vals.current_file_index
                     self.global_vals.current_file_index += 1
@@ -183,4 +194,70 @@ class RadarHandler:
             raise ValueError("잘못된 모드입니다. 'live', 'file', 또는 'directory' 중 하나를 선택하세요.")
 
         # self.receiver_thread.daemon = True
+        self.receiver_thread.start()
+
+
+class LiDARHandler:
+    def __init__(self, global_vals, mode='live', file_path=None):
+        self.global_vals = global_vals
+        self.mode = mode
+        self.file_path = file_path
+        self.pcd_path = []
+        self.run()
+        
+    def data_receiver_directory(self):
+        if os.path.exists(self.file_path + '/lidar/Data/'):
+                LiDAR_path = self.file_path + '/lidar/Data/'
+        else:
+            LiDAR_path = self.file_path + '/lidar/'
+            
+        self.LiDAR_files = [f for f in os.listdir(LiDAR_path) if isfile(join(LiDAR_path, f)) if not f.startswith(".")]
+        self.LiDAR_files.sort(key=lambda x: int(x.split('.')[0][4:]))
+        
+        for frame in range(len(self.LiDAR_files)):
+            self.pcd_path.append(LiDAR_path  + self.LiDAR_files[frame])
+        
+        
+        for i in range(len(self.pcd_path)):
+            start_time = time.time()  # 시작 시간 기록
+            
+            with open(self.pcd_path[i], 'rb') as f:
+                    # Read header
+                header = []
+                while True:
+                    line = f.readline().decode('ascii').strip()
+                    header.append(line)
+                    if line.startswith('DATA'):
+                        break
+
+                # Extract point count from header
+                point_count = int([line for line in header if line.startswith('POINTS')][0].split()[1])
+
+                # Read binary data
+                data = f.read()
+
+                # Assuming the format is x, y, z, intensity (4 floats)
+                point_format = 'ffff'
+                point_size = struct.calcsize(point_format)
+                points = []
+                
+                for i in range(point_count):
+                        point_data = data[i * point_size:(i + 1) * point_size]
+                        x, y, z, intensity = struct.unpack(point_format, point_data)
+                        points.append((x, y, z, intensity))
+                
+                point_cloud = np.array(points)
+                
+                if self.global_vals.LiDAR_queue.qsize() < 300:
+                    self.global_vals.LiDAR_queue.put((point_cloud.copy(), time.time()))
+                else:
+                    print("LiDAR 큐가 가득 찼습니다. 데이터 스킵")
+            
+            # 처리 시간 계산 후 대기 시간 조정
+            elapsed_time = time.time() - start_time
+            sleep_time = max(0, 0.1 - elapsed_time)
+            time.sleep(sleep_time)
+
+    def run(self):
+        self.receiver_thread = multiprocessing.Process(target=self.data_receiver_directory)
         self.receiver_thread.start()

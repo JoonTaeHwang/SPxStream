@@ -1,7 +1,7 @@
 import os
 from SPxRadarStream.config import initialize_global_values, SETTINGS, Mode
 from typing import Optional
-from SPxRadarStream.device import RadarHandler
+from SPxRadarStream.device import RadarHandler, LiDARHandler
 from SPxRadarStream.display import RadarDisplay
 
 class SetParameters:
@@ -23,17 +23,18 @@ class Builer:
     def build(self):
         
         if self.config.settings.mode == Mode.LIVE:
-            radardisplay = RadarDisplay(self.global_vals, self.config, mode='live')
+            RadarDisplay(self.global_vals, self.config, mode='live')
         elif self.config.settings.mode == Mode.FILE:
             file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '20250124-120122-0x2eea4790.cpr')
-            radardisplay = RadarDisplay(self.global_vals, self.config, mode='file', file_path=file_path)
+            RadarDisplay(self.global_vals, self.config, mode='file', file_path=file_path)
         elif self.config.settings.mode == Mode.DIRECTORY:
             # 현재 스크립트의 상위 폴더 경로 지정
             radar_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data/20250124-120122-0x2eea4790')
+            lidar_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data/FVMdata')
             RadarHandler(self.global_vals, mode='directory', file_path=radar_dir)
-            radardisplay = RadarDisplay(self.global_vals, self.config, mode='directory', file_path=radar_dir)
+            LiDARHandler(self.global_vals, mode='directory',file_path=lidar_dir)
+            RadarDisplay(self.global_vals, self.config, mode='directory', file_path=radar_dir)
         else:
             raise ValueError(f"Invalid mode: {self.config.settings.mode}")
 
-        radardisplay.run()
 
