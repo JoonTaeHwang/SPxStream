@@ -1,6 +1,5 @@
 from SPxRadarStream.client import Builer
 from SPxRadarStream.config import Mode, SETTINGS
-import os
 
 if __name__ == "__main__":
     

@@ -2,8 +2,8 @@
 import numpy as np
 import pygame
 import math
-from queue import Queue
 import time
+from SPxRadarStream.filter import RadarFilter
 
 class RadarDisplay:
     def __init__(
@@ -19,7 +19,7 @@ class RadarDisplay:
         self.config = Config
         self.screen_size = screen_size
         self.screen = pygame.display.set_mode(screen_size)
-        
+        self.radar_filter = RadarFilter()
         # 모드에 따른 캡션 설정
         mode_text = {
             'live': 'LiveStream',
@@ -112,7 +112,6 @@ class RadarDisplay:
         
         for row in sector_data:
             azimuth = float(row[0])
-            timestamp = int(row[2])
             intensity_data = np.array([int(x) for x in row[3:]])
             
             if received_time > self.sector_timestamps[current_sector]:
@@ -161,19 +160,17 @@ class RadarDisplay:
             self._draw_single_intensity_data(self.data_surface_original, self.center_original, azimuth, intensity_data)
         elif self.display_mode == 'filter_visualization':
             # 필터링 시각화 모드
-            filtered_data = self.apply_filter(intensity_data)
-            center = (self.screen_size[0]//2, self.screen_size[1]//2)
-            
+            filtered_data = self.radar_filter.apply_filter(intensity_data)
             # 필터링된 데이터는 초록색으로 표시
-            self._draw_single_intensity_data_colored(self.data_surface_original, center, azimuth, filtered_data, (0, 255, 0))
-            
+            self._draw_single_intensity_data_colored(self.data_surface_original, self.center_original, azimuth, filtered_data, (0, 255, 0))
             # 필터링으로 제거된 데이터는 빨간색으로 표시
             removed_data = np.where(intensity_data > filtered_data, intensity_data, 0)
-            self._draw_single_intensity_data_colored(self.data_surface_original, center, azimuth, removed_data, (255, 0, 0))
+            self._draw_single_intensity_data_colored(self.data_surface_original, self.center_original, azimuth, removed_data, (255, 0, 0))
         else:
             # 듀얼 모드 (기존 코드)
+            filtered_data = self.radar_filter.apply_filter(intensity_data)
+            
             self._draw_single_intensity_data(self.data_surface_original, self.center_original, azimuth, intensity_data)
-            filtered_data = self.apply_filter(intensity_data)
             self._draw_single_intensity_data(self.data_surface_filtered, self.center_filtered, azimuth, filtered_data)
 
     def _draw_single_intensity_data(self, surface, center, azimuth, intensity_data):
@@ -393,22 +390,3 @@ class RadarDisplay:
             self.process.terminate()
             self.process.wait()
         pygame.quit()
-
-
-    def apply_filter(self, intensity_data):
-        """레이더 데이터에 필터를 적용하는 메서드"""
-        filtered_data = intensity_data.copy()
-        
-        # === 필터링 알고리즘 시작 ===
-        filtered_data[:150] = 0
-        
-        # 여기에 추가 필터링 알고리즘
-        # - 노이즈 제거
-        # - 신호 증폭
-        # - 특정 범위 필터링
-        # - 이동 평균 필터
-        # 등등...
-        
-        # === 필터링 알고리즘 끝 ===
-        
-        return filtered_data

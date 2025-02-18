@@ -1,7 +1,6 @@
 import subprocess
 import csv
 from io import StringIO
-import numpy as np
 import multiprocessing
 import time
 import glob
@@ -128,7 +127,7 @@ class RadarHandler:
                                 sector_idx = int(azimuth // 30)
                                 
                                 if sector_idx != current_sector and buffer[current_sector]:
-                                    if self.global_vals.data_queue.qsize() < 20:
+                                    if self.global_vals.data_queue.qsize() < 36:
                                         self.global_vals.data_queue.put((buffer[current_sector].copy(), time.time()))
                                         buffer[current_sector] = []
                                     else:
